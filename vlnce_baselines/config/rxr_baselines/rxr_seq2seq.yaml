@@ -7,12 +7,24 @@ TENSORBOARD_DIR: data/tensorboard_dirs/rxr_seq2seq_en
 CHECKPOINT_FOLDER: data/checkpoints/rxr_seq2seq_en
 EVAL_CKPT_PATH_DIR: data/checkpoints/rxr_seq2seq_en
 RESULTS_DIR: data/checkpoints/rxr_seq2seq_en/evals
+VIDEO_OPTION: ["disk"]  # options: "disk", "tensorboard"
+VIDEO_DIR: "data/videos/debug/seq2seq"
+
+INFERENCE:
+  SPLIT: test_challenge
+  LANGUAGES: [en-US, en-IN]
+  SAMPLE: True
+  USE_CKPT_CONFIG: False
+  CKPT_PATH: data/checkpoints/ckpt.0.pth  # REPLACE THIS
+  PREDICTIONS_FILE: rxr_se2seq_test_challenge.jsonl
+  FORMAT: rxr
 
 EVAL:
   USE_CKPT_CONFIG: False
-  SPLIT: val_unseen
+  SPLIT: val_seen
+  LANGUAGES: [en-US, en-IN]
   EPISODE_COUNT: -1
-  SAMPLE: False
+  SAMPLE: True
 
 RL:
   POLICY:
@@ -20,7 +32,7 @@ RL:
       ENABLED_TRANSFORMS: [ResizeShortestEdge, CenterCropperPerSensor]
 
 IL:
-  batch_size: 3
+  batch_size: 8
   epochs: 15
   inflection_weight_coef: 1.9
 

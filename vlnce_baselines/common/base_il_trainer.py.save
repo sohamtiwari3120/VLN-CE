@@ -230,8 +230,7 @@ class BaseVLNCETrainer(BaseILTrainer):
             checkpoint_index: index of the current checkpoint
         """
         logger.info(f"checkpoint_path: {checkpoint_path}")
-        # import pdb; pdb.set_trace()
-        
+
         config = self.config.clone()
         if self.config.EVAL.USE_CKPT_CONFIG:
             ckpt = self.load_checkpoint(checkpoint_path, map_location="cpu")
@@ -342,12 +341,10 @@ class BaseVLNCETrainer(BaseILTrainer):
             for i in range(envs.num_envs):
                 if len(config.VIDEO_OPTION) > 0:
                     frame = observations_to_image(observations[i], infos[i])
-                    # import pdb; pdb.set_trace()
-                    # print(f"Episode instruction {current_episodes[i].instruction}"); 
+                    print(f"Episode instruction {current_episodes[i].instruction}")
                     frame = append_text_to_image(
                         frame, current_episodes[i].instruction.instruction_text,
-                        attention=att["text"][i], 
-                        task="rxr" if "RxR" in config.TASK_CONFIG.DATASET.TYPE else "r2r"
+                        attention=att["text"][i]
                     )
                     rgb_frames[i].append(frame)
 
@@ -382,6 +379,7 @@ class BaseVLNCETrainer(BaseILTrainer):
                     )
                     del stats_episodes[ep_id]["top_down_map_vlnce"]
                     rgb_frames[i] = []
+
             observations = extract_instruction_tokens(
                 observations,
                 self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
@@ -544,7 +542,8 @@ class BaseVLNCETrainer(BaseILTrainer):
 
                 # reset envs and observations if necessary
                 for i in range(envs.num_envs):
-                    episode_predictions[current_episodes[i].episode_id].append(
+                    episode_predictions[current_episodes[i].episode_id].
+append(
                         infos[i]
                     )
                     if not dones[i]:

@@ -39,6 +39,7 @@ def evaluate_agent(config: Config) -> None:
     stats = defaultdict(float)
     num_episodes = min(config.EVAL.EPISODE_COUNT, len(env.episodes))
     for _ in trange(num_episodes):
+        print(f"Starting Episode {_}")
         obs = env.reset()
         agent.reset()
 

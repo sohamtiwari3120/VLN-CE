@@ -7,6 +7,8 @@ TENSORBOARD_DIR: data/tensorboard_dirs/rxr_cma_en
 CHECKPOINT_FOLDER: data/checkpoints/rxr_cma_en
 EVAL_CKPT_PATH_DIR: data/checkpoints/rxr_cma_en
 RESULTS_DIR: data/checkpoints/rxr_cma_en/evals
+VIDEO_OPTION: []  # options: "disk", "tensorboard"
+VIDEO_DIR: "data/videos/rxr_cma_en"
 
 INFERENCE:
   SPLIT: test_challenge
@@ -16,21 +18,22 @@ INFERENCE:
   CKPT_PATH: data/checkpoints/ckpt.0.pth  # REPLACE THIS
   PREDICTIONS_FILE: rxr_cma_en_test_challenge.jsonl
   FORMAT: rxr
+# data/checkpoints/rxr_cma_en/RxR-en-CMA.pth
 
 EVAL:
   USE_CKPT_CONFIG: False
   SPLIT: val_unseen
   LANGUAGES: [en-US, en-IN]
   EPISODE_COUNT: -1
-  SAMPLE: True
-
+  # SAMPLE: True
+  
 RL:
   POLICY:
     OBS_TRANSFORMS:
       ENABLED_TRANSFORMS: [ResizeShortestEdge, CenterCropperPerSensor]
 
 IL:
-  batch_size: 3
+  batch_size: 16
   epochs: 15
   inflection_weight_coef: 1.9
 

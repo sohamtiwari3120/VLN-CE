@@ -1,9 +1,10 @@
 import gc
+import json
 import os
 import random
 import warnings
 from collections import defaultdict
-
+import time
 import lmdb
 import msgpack_numpy
 import numpy as np
@@ -17,11 +18,15 @@ from habitat_baselines.common.obs_transformers import (
 )
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 from habitat_baselines.utils.common import batch_obs
+from habitat_baselines.rl.ddppo.algo.ddp_utils import is_slurm_batch_job
 
+from vlnce_baselines.common.env_utils import construct_envs_auto_reset_false
 from vlnce_baselines.common.aux_losses import AuxLosses
 from vlnce_baselines.common.base_il_trainer import BaseVLNCETrainer
 from vlnce_baselines.common.env_utils import construct_envs
 from vlnce_baselines.common.utils import extract_instruction_tokens
+
+from habitat_extensions.utils import generate_video, observations_to_image, append_text_to_image
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -404,7 +409,7 @@ class DaggerTrainer(BaseVLNCETrainer):
                     if envs.num_envs == 0:
                         break
 
-                actions, rnn_states = self.policy.act(
+                actions, rnn_states, _ = self.policy.act(
                     batch,
                     rnn_states,
                     prev_actions,
@@ -608,3 +613,235 @@ class DaggerTrainer(BaseVLNCETrainer):
                         f"ckpt.{dagger_it * self.config.IL.epochs + epoch}.pth"
                     )
                 AuxLosses.deactivate()
+                
+                
+    def _eval_checkpoint(
+        self, checkpoint_path: str,
+        writer: TensorboardWriter,
+        checkpoint_index: int = 0,
+    ) -> None:
+        """Evaluates a single checkpoint.
+
+        Args:
+            checkpoint_path: path of checkpoint
+            writer: tensorboard writer object
+            checkpoint_index: index of the current checkpoint
+        """
+        logger.info(f"checkpoint_path: {checkpoint_path}")
+
+        config = self.config.clone()
+        if self.config.EVAL.USE_CKPT_CONFIG:
+            ckpt = self.load_checkpoint(checkpoint_path, map_location="cpu")
+            config = self._setup_eval_config(ckpt)
+
+        split = config.EVAL.SPLIT
+
+        config.defrost()
+        config.TASK_CONFIG.DATASET.SPLIT = split
+        config.TASK_CONFIG.DATASET.ROLES = ["guide"]
+        config.TASK_CONFIG.DATASET.LANGUAGES = config.EVAL.LANGUAGES
+        config.TASK_CONFIG.TASK.NDTW.SPLIT = split
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = False
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = (
+            -1
+        )
+        config.IL.ckpt_to_load = checkpoint_path
+        config.use_pbar = not is_slurm_batch_job()
+
+        if len(config.VIDEO_OPTION) > 0:
+            config.TASK_CONFIG.TASK.MEASUREMENTS.append("TOP_DOWN_MAP_VLNCE")
+
+        config.freeze()
+
+        if config.EVAL.SAVE_RESULTS:
+            fname = os.path.join(
+                config.RESULTS_DIR,
+                f"stats_ckpt_{checkpoint_index}_{split}.json",
+            )
+            if os.path.exists(fname):
+                logger.info("skipping -- evaluation exists.")
+                return
+
+        envs = construct_envs_auto_reset_false(
+            config, get_env_class(config.ENV_NAME)
+        )
+        observation_space, action_space = self._get_spaces(config, envs=envs)
+
+        self._initialize_policy(
+            config,
+            load_from_ckpt=True,
+            observation_space=observation_space,
+            action_space=action_space,
+        )
+        self.policy.eval()
+
+        observations = envs.reset()
+        observations = extract_instruction_tokens(
+            observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+        )
+        batch = batch_obs(observations, self.device)
+        batch = apply_obs_transforms_batch(batch, self.obs_transforms)
+
+        rnn_states = torch.zeros(
+            envs.num_envs,
+            self.policy.net.num_recurrent_layers,
+            config.MODEL.STATE_ENCODER.hidden_size,
+            device=self.device,
+        )
+        prev_actions = torch.zeros(
+            envs.num_envs, 1, device=self.device, dtype=torch.long
+        )
+        not_done_masks = torch.zeros(
+            envs.num_envs, 1, dtype=torch.uint8, device=self.device
+        )
+
+        stats_episodes = {}
+
+        rgb_frames = [[] for _ in range(envs.num_envs)]
+        att_frames = [[] for _ in range(envs.num_envs)]
+        if len(config.VIDEO_OPTION) > 0:
+            os.makedirs(config.VIDEO_DIR, exist_ok=True)
+
+        num_eps = sum(envs.number_of_episodes)
+        if config.EVAL.EPISODE_COUNT > -1:
+            num_eps = min(config.EVAL.EPISODE_COUNT, num_eps)
+
+        pbar = tqdm.tqdm(total=num_eps) if config.use_pbar else None
+        log_str = (
+            f"[Ckpt: {checkpoint_index}]"
+            " [Episodes evaluated: {evaluated}/{total}]"
+            " [Time elapsed (s): {time}]"
+        )
+        start_time = time.time()
+
+        while envs.num_envs > 0 and len(stats_episodes) < num_eps:
+            current_episodes = envs.current_episodes()
+
+            with torch.no_grad():
+                actions, rnn_states, att = self.policy.act(
+                    batch,
+                    rnn_states,
+                    prev_actions,
+                    not_done_masks,
+                    deterministic=not config.EVAL.SAMPLE,
+                )
+                prev_actions.copy_(actions)
+
+            outputs = envs.step([a[0].item() for a in actions])
+            observations, _, dones, infos = [list(x) for x in zip(*outputs)]
+
+            not_done_masks = torch.tensor(
+                [[0] if done else [1] for done in dones],
+                dtype=torch.uint8,
+                device=self.device,
+            )
+
+            # reset envs and observations if necessary
+            for i in range(envs.num_envs):
+                if len(config.VIDEO_OPTION) > 0:
+                    frame = observations_to_image(observations[i], infos[i])
+                    # import pdb; pdb.set_trace()
+                    frame = append_text_to_image(
+                        frame, current_episodes[i].instruction.instruction_text,
+                        attention=att["text"][i],
+                        task="rxr" if "RxR" in config.TASK_CONFIG.DATASET.TYPE else "r2r"
+                    )
+                    rgb_frames[i].append(frame)
+
+                if not dones[i]:
+                    continue
+
+                ep_id = current_episodes[i].episode_id
+                stats_episodes[ep_id] = infos[i]
+                observations[i] = envs.reset_at(i)[0]
+                prev_actions[i] = torch.zeros(1, dtype=torch.long)
+
+                if config.use_pbar:
+                    pbar.update()
+                else:
+                    logger.info(
+                        log_str.format(
+                            evaluated=len(stats_episodes),
+                            total=num_eps,
+                            time=round(time.time() - start_time),
+                        )
+                    )
+
+                if len(config.VIDEO_OPTION) > 0:
+                    generate_video(
+                        video_option=config.VIDEO_OPTION,
+                        video_dir=config.VIDEO_DIR,
+                        images=rgb_frames[i],
+                        episode_id=ep_id,
+                        checkpoint_idx=checkpoint_index,
+                        metrics={"spl": stats_episodes[ep_id]["spl"]},
+                        tb_writer=writer,
+                    )
+                    # generate_video(
+                    #     video_option=config.VIDEO_OPTION,
+                    #     video_dir=config.VIDEO_DIR,
+                    #     images=att_frames[i],
+                    #     episode_id=ep_id,
+                    #     checkpoint_idx=checkpoint_index,
+                    #     metrics={"ndtw": stats_episodes[ep_id]["ndtw"]},
+                    #     tb_writer=writer,
+                    # )
+                    del stats_episodes[ep_id]["top_down_map_vlnce"]
+                    rgb_frames[i] = []
+                    # att_frames[i] = []
+
+            observations = extract_instruction_tokens(
+                observations,
+                self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
+            )
+            batch = batch_obs(observations, self.device)
+            batch = apply_obs_transforms_batch(batch, self.obs_transforms)
+
+            envs_to_pause = []
+            next_episodes = envs.current_episodes()
+
+            for i in range(envs.num_envs):
+                if next_episodes[i].episode_id in stats_episodes:
+                    envs_to_pause.append(i)
+
+            (
+                envs,
+                rnn_states,
+                not_done_masks,
+                prev_actions,
+                batch,
+                rgb_frames,
+                # att_frames,
+            ) = self._pause_envs(
+                envs_to_pause,
+                envs,
+                rnn_states,
+                not_done_masks,
+                prev_actions,
+                batch,
+                rgb_frames,
+                # att_frames
+            )
+
+        envs.close()
+        if config.use_pbar:
+            pbar.close()
+
+        aggregated_stats = {}
+        num_episodes = len(stats_episodes)
+        for k in next(iter(stats_episodes.values())).keys():
+            aggregated_stats[k] = (
+                sum(v[k] for v in stats_episodes.values()) / num_episodes
+            )
+
+        if config.EVAL.SAVE_RESULTS:
+            with open(fname, "w") as f:
+                json.dump(aggregated_stats, f, indent=4)
+
+        logger.info(f"Episodes evaluated: {num_episodes}")
+        checkpoint_num = checkpoint_index + 1
+        for k, v in aggregated_stats.items():
+            logger.info(f"{k}: {v:.6f}")
+            writer.add_scalar(f"eval_{split}_{k}", v, checkpoint_num)
+
+

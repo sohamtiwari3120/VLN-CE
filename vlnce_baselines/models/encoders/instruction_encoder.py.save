@@ -66,8 +66,9 @@ class InstructionEncoder(nn.Module):
             instruction: [batch_size x seq_length]
             lengths: [batch_size]
             hidden_state: [batch_size x hidden_size]
-        """ #; import pdb; pdb.set_trace()
-        if self.config.sensor_uuid == "instruction":
+        """
+        
+if self.config.sensor_uuid == "instruction":
             instruction = observations["instruction"].long()
             lengths = (instruction != 0.0).long().sum(dim=1)
             instruction = self.embedding_layer(instruction)
