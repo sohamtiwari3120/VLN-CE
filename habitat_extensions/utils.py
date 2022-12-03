@@ -18,20 +18,10 @@ from habitat.utils.visualizations.utils import images_to_video
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 from numpy import ndarray
 from torch import Tensor
-from transformers import BertTokenizer
-
 
 from habitat_extensions import maps
 
 cv2 = try_cv2_import()
-
-import re
-SENTENCE_SPLIT_REGEX = re.compile(r"([^\w-]+)")
-
-"""
- Tokenize and vocabulary utils originally authored by @apsdehal and are
- taken from Pythia.
-"""
 
 
 def observations_to_image(
@@ -116,8 +106,68 @@ def observations_to_image(
             interpolation=cv2.INTER_CUBIC,
         )
         frame = np.concatenate((egocentric_view, td_map), axis=1)
+
+        if "selforienting" in info and info["selforienting"]:
+            frame = cv2.copyMakeBorder(
+                frame, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=(255, 0, 0))
+            frame = cv2.resize(
+                frame, (frame.shape[1]-20, frame.shape[0]-20), 
+                interpolation=cv2.INTER_CUBIC,)
+        # print(frame.shape)
+            # import matplotlib.pyplot as plt
+            # plt.imshow(frame)
+            # plt.show()
+            # outputImage = cv2.copyMakeBorder(
+            #      inputImage, 
+            #      topBorderWidth, 
+            #      bottomBorderWidth, 
+            #      leftBorderWidth, 
+            #      rightBorderWidth, 
+            #      cv2.BORDER_CONSTANT, 
+            #      value=color of border
+            #   )
+
     return frame
 
+def append_text_to_image(image: np.ndarray, timed_text: str, mask):
+    r"""Appends text underneath an image of size (height, width, channels).
+    The returned image has white text on a black background. Uses textwrap to
+    split long text into multiple lines.
+    Args:
+        image: the image to put text underneath
+        text: a string to display
+    Returns:
+        A new image with text inserted underneath the input image
+    """
+    h, w, c = image.shape
+    font_size = 0.5
+    font_thickness = 1
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    blank_image = np.zeros(image.shape, dtype=np.uint8)
+
+    char_size = cv2.getTextSize(" ", font, font_size, font_thickness)[0]
+    y = char_size[1] + 10
+    x = 0
+    for i, token in enumerate(timed_text):
+        word = f"{token['word']} "
+        word_size = cv2.getTextSize(word, font, font_size, font_thickness)[0]
+        color = (255, 0, 0) if mask[i] == 1 else (255, 255, 255)
+
+        if x + word_size[0] >= w:
+            y += char_size[1] + 10
+            x = 0
+
+        cv2.putText(
+            blank_image, word, (x, y), font, font_size, color, font_thickness, lineType=cv2.LINE_AA)
+        x += word_size[0]
+        
+    text_image = blank_image[:y+20, 0:w]
+    # import matplotlib.pyplot as plt 
+    # plt.imshow(blank_image)
+    # plt.show()
+    final = np.concatenate((image, text_image), axis=0)
+
+    return final
 
 def pano_observations_to_image(
     observation: Dict[str, Any], info: Dict[str, Any]
@@ -781,105 +831,3 @@ def rtheta_to_global_coordinates(
     if dimensionality == 2:
         return [position[0], position[2]]
     return position
-
-def tokenize_(
-    sentence, regex=SENTENCE_SPLIT_REGEX, keep=["'s"], remove=[",", "?"]
-):
-    sentence = sentence.lower()
-
-    for token in keep:
-        sentence = sentence.replace(token, " " + token)
-
-    for token in remove:
-        sentence = sentence.replace(token, "")
-
-    tokens = regex.split(sentence)
-    tokens = [t.strip() for t in tokens if len(t.strip()) > 0]
-    return tokens
-
-def append_text_to_image(image: np.ndarray, text: str, attention: np.ndarray, task: str = "rxr"):
-    r"""Appends text underneath an image of size (height, width, channels).
-    The returned image has white text on a black background. Uses textwrap to
-    split long text into multiple lines.
-    Args:
-        image: the image to put text underneath
-        text: a string to display
-    Returns:
-        A new image with text inserted underneath the input image
-    """
-    h, w, c = image.shape
-    font_size = 0.5
-    font_thickness = 1
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    blank_image = np.zeros(image.shape, dtype=np.uint8)
-
-    char_size = cv2.getTextSize(" ", font, font_size, font_thickness)[0]
-    wrapped_text = textwrap.wrap(text, width=int(w / char_size[0]))
-    y = 0
-    
-    # just a sanity check 
-    # words = tokenize(text); print(words)
-    
-    if task == "rxr":
-        tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
-        tokenize = tokenizer.tokenize
-        # SANITY CHECK
-        words = tokenize(text)
-        words = ["START"] + words + ["END"]
-        word_num = 1
-    else:
-        words = tokenize_(text)
-        word_num = 0
-    
-    assert len(words) == attention.shape[0], \
-        f"sentence len {len(words)} != attention len {attention.shape[0]}"
-
-    
-    # print(attention.shape)
-    # print(wrapped_text)
-    # print(len(wrapped_text), [len(li) for li in wrapped_text])
-    attention = attention/np.max(attention)
-
-
-    for i, line in enumerate(wrapped_text):
-        
-        if task == "rxr": 
-            words = tokenize(line)
-        else: 
-            words = tokenize_(line)
-            
-        # print(line, words)
-        # print()
-        textsize = cv2.getTextSize(line, font, font_size, font_thickness)[0]
-        y += textsize[1] + 10
-        
-        x = 0
-        for word in words:
-            wordsize = cv2.getTextSize(word, font, font_size, font_thickness)[0]
-            weighted_color = int(attention[word_num] * 255)
-            # print(i, attention[word_num], weighted_color)
-            
-            cv2.rectangle(
-                blank_image, 
-                (x, y - wordsize[1]), 
-                (x + wordsize[0], y + wordsize[1]), 
-                (weighted_color, 0, 0),-1)
-            
-            cv2.putText(
-                blank_image,
-                word,
-                (x, y),
-                font,
-                font_size,
-                (255, 255, 255),
-                # (0, 0, 0),
-                font_thickness,
-                lineType=cv2.LINE_AA,)
-            
-            x += wordsize[0] + 5
-            word_num += 1
-            
-    text_image = blank_image[0 : y + 10, 0:w]
-    final = np.concatenate((image, text_image), axis=0)
-
-    return final

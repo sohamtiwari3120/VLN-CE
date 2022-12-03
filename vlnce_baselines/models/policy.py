@@ -31,7 +31,7 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
         masks,
         deterministic=False,
     ):
-        features, rnn_states, att = self.net(
+        features, rnn_states = self.net(
             observations, rnn_states, prev_actions, masks
         )
         distribution = self.action_distribution(features)
@@ -41,7 +41,7 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
         else:
             action = distribution.sample()
 
-        return action, rnn_states, att
+        return action, rnn_states
 
     def get_value(self, *args: Any, **kwargs: Any):
         raise NotImplementedError

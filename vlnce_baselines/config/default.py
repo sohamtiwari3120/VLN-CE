@@ -129,6 +129,8 @@ _C.RL.CHECKPOINT_INTERVAL = 250
 # POLICY CONFIG
 # ----------------------------------------------------------------------------
 _C.RL.POLICY = CN()
+_C.RL.POLICY.load_from_ckpt = False
+_C.RL.POLICY.ckpt_to_load = 'data/checkpoints/hpn/ckpt.pth'
 _C.RL.POLICY.OBS_TRANSFORMS = CN()
 _C.RL.POLICY.OBS_TRANSFORMS.ENABLED_TRANSFORMS = []
 _C.RL.POLICY.OBS_TRANSFORMS.OBS_STACK = CN()
@@ -150,23 +152,23 @@ _C.RL.POLICY.OBS_TRANSFORMS.OBS_STACK.SENSOR_REWRITES = [
             "rgb_11",
         ],
     ),
-    (
-        "depth",
-        [
-            "depth",
-            "depth_1",
-            "depth_2",
-            "depth_3",
-            "depth_4",
-            "depth_5",
-            "depth_6",
-            "depth_7",
-            "depth_8",
-            "depth_9",
-            "depth_10",
-            "depth_11",
-        ],
-    ),
+    # (
+    #     "depth",
+    #     [
+    #         "depth",
+    #         "depth_1",
+    #         "depth_2",
+    #         "depth_3",
+    #         "depth_4",
+    #         "depth_5",
+    #         "depth_6",
+    #         "depth_7",
+    #         "depth_8",
+    #         "depth_9",
+    #         "depth_10",
+    #         "depth_11",
+    #     ],
+    # ),
 ]
 _C.RL.POLICY.OBS_TRANSFORMS.CENTER_CROPPER_PER_SENSOR = CN()
 _C.RL.POLICY.OBS_TRANSFORMS.CENTER_CROPPER_PER_SENSOR.SENSOR_CROPS = [
@@ -343,6 +345,55 @@ def add_pano_sensors_to_config(config: CN) -> CN:
 
     config.defrost()
     orient = [(0, np.pi * 2 / num_cameras * i, 0) for i in range(num_cameras)]
+    sensor_uuids = ["rgb"]
+    if "RGB_SENSOR" in config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS:
+        config.TASK_CONFIG.SIMULATOR.RGB_SENSOR.ORIENTATION = orient[0]
+        for camera_id in range(1, num_cameras):
+            camera_template = f"RGB_{camera_id}"
+            camera_config = deepcopy(config.TASK_CONFIG.SIMULATOR.RGB_SENSOR)
+            camera_config.ORIENTATION = orient[camera_id]
+
+            camera_config.UUID = camera_template.lower()
+            sensor_uuids.append(camera_config.UUID)
+            setattr(
+                config.TASK_CONFIG.SIMULATOR, camera_template, camera_config
+            )
+            config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS.append(
+                camera_template
+            )
+
+    sensor_uuids = ["depth"]
+    if "DEPTH_SENSOR" in config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS:
+        config.TASK_CONFIG.SIMULATOR.DEPTH_SENSOR.ORIENTATION = orient[0]
+        for camera_id in range(1, num_cameras):
+            camera_template = f"DEPTH_{camera_id}"
+            camera_config = deepcopy(config.TASK_CONFIG.SIMULATOR.DEPTH_SENSOR)
+            camera_config.ORIENTATION = orient[camera_id]
+            camera_config.UUID = camera_template.lower()
+            sensor_uuids.append(camera_config.UUID)
+
+            setattr(
+                config.TASK_CONFIG.SIMULATOR, camera_template, camera_config
+            )
+            config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS.append(
+                camera_template
+            )
+
+    config.SENSORS = config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS
+    config.freeze()
+    return config
+
+def add_pano_sensors_to_config_(config: CN) -> CN:
+    """Dynamically adds RGB and Depth cameras to config.TASK_CONFIG, forming
+    an N-frame panorama. The PanoRGB and PanoDepth observation transformers
+    can be used to stack these frames together.
+    """
+    num_cameras = config.TASK_CONFIG.TASK.PANO_ROTATIONS
+
+    config.defrost()
+    orient = [(0, np.pi * 2 / num_cameras * i, 0) for i in range(num_cameras)]
+    # import pdb; pdb.set_trace()
+
     sensor_uuids = ["rgb"]
     if "RGB_SENSOR" in config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS:
         config.TASK_CONFIG.SIMULATOR.RGB_SENSOR.ORIENTATION = orient[0]

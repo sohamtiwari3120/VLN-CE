@@ -136,7 +136,7 @@ class RecollectTrainer(BaseVLNCETrainer):
                         corrected_actions_batch,
                         weights_batch,
                     ) = next(diter)
-
+                    
                     observations_batch = apply_obs_transforms_batch(
                         {
                             k: v.to(device=self.device, non_blocking=True)

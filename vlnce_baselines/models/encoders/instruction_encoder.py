@@ -66,7 +66,7 @@ class InstructionEncoder(nn.Module):
             instruction: [batch_size x seq_length]
             lengths: [batch_size]
             hidden_state: [batch_size x hidden_size]
-        """ #; import pdb; pdb.set_trace()
+        """
         if self.config.sensor_uuid == "instruction":
             instruction = observations["instruction"].long()
             lengths = (instruction != 0.0).long().sum(dim=1)
@@ -74,11 +74,11 @@ class InstructionEncoder(nn.Module):
         else:
             instruction = observations["rxr_instruction"]
 
-        lengths = (instruction != 0.0).long().sum(dim=2)
+        lengths = (instruction != 0.0).long().sum(dim=2).cpu()
         lengths = (lengths != 0.0).long().sum(dim=1)
 
         packed_seq = nn.utils.rnn.pack_padded_sequence(
-            instruction, lengths.to(torch.device("cpu")), batch_first=True, enforce_sorted=False
+            instruction, lengths, batch_first=True, enforce_sorted=False
         )
 
         output, final_state = self.encoder_rnn(packed_seq)

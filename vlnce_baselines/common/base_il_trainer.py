@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import tqdm
 from gym import Space
 from habitat import Config, logger
-# from habitat.utils.visualizations.utils import append_text_to_image
+from habitat.utils.visualizations.utils import append_text_to_image
 from habitat_baselines.common.base_il_trainer import BaseILTrainer
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.common.environments import get_env_class
@@ -24,7 +24,7 @@ from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 from habitat_baselines.rl.ddppo.algo.ddp_utils import is_slurm_batch_job
 from habitat_baselines.utils.common import batch_obs
 
-from habitat_extensions.utils import generate_video, observations_to_image, append_text_to_image
+from habitat_extensions.utils import generate_video, observations_to_image
 from vlnce_baselines.common.aux_losses import AuxLosses
 from vlnce_baselines.common.env_utils import construct_envs_auto_reset_false
 from vlnce_baselines.common.utils import extract_instruction_tokens
@@ -230,8 +230,7 @@ class BaseVLNCETrainer(BaseILTrainer):
             checkpoint_index: index of the current checkpoint
         """
         logger.info(f"checkpoint_path: {checkpoint_path}")
-        # import pdb; pdb.set_trace()
-        
+
         config = self.config.clone()
         if self.config.EVAL.USE_CKPT_CONFIG:
             ckpt = self.load_checkpoint(checkpoint_path, map_location="cpu")
@@ -320,7 +319,7 @@ class BaseVLNCETrainer(BaseILTrainer):
             current_episodes = envs.current_episodes()
 
             with torch.no_grad():
-                actions, rnn_states, att = self.policy.act(
+                actions, rnn_states = self.policy.act(
                     batch,
                     rnn_states,
                     prev_actions,
@@ -342,12 +341,8 @@ class BaseVLNCETrainer(BaseILTrainer):
             for i in range(envs.num_envs):
                 if len(config.VIDEO_OPTION) > 0:
                     frame = observations_to_image(observations[i], infos[i])
-                    # import pdb; pdb.set_trace()
-                    # print(f"Episode instruction {current_episodes[i].instruction}"); 
                     frame = append_text_to_image(
-                        frame, current_episodes[i].instruction.instruction_text,
-                        attention=att["text"][i], 
-                        task="rxr" if "RxR" in config.TASK_CONFIG.DATASET.TYPE else "r2r"
+                        frame, current_episodes[i].instruction.instruction_text
                     )
                     rgb_frames[i].append(frame)
 
@@ -382,6 +377,7 @@ class BaseVLNCETrainer(BaseILTrainer):
                     )
                     del stats_episodes[ep_id]["top_down_map_vlnce"]
                     rgb_frames[i] = []
+
             observations = extract_instruction_tokens(
                 observations,
                 self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,

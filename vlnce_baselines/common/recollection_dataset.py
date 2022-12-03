@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 import numpy as np
 import torch
 import tqdm
-from gym import Space
+from gym import Space, spaces
 from habitat.config.default import Config
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from habitat_baselines.common.environments import get_env_class
@@ -14,16 +14,28 @@ from habitat_baselines.common.obs_transformers import (
     get_active_obs_transforms,
 )
 
+
 from habitat_extensions.task import ALL_ROLES_MASK, RxRVLNCEDatasetV1
 from vlnce_baselines.common.env_utils import construct_envs
 from vlnce_baselines.common.utils import extract_instruction_tokens
+from vlnce_baselines.config.default import add_pano_sensors_to_config
 
+from habitat_baselines.utils.common import batch_obs
 
 class TeacherRecollectionDataset(torch.utils.data.IterableDataset):
     def __init__(self, config: Config):
         super().__init__()
+        # config = add_pano_sensors_to_config(config)
+        # config = add_pano_sensors_to_config_(config)
+
         self.config = config
         self._preload = deque()
+
+        self.device = (
+            torch.device("cuda", self.config.TORCH_GPU_ID)
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
 
         assert (
             config.IL.RECOLLECT_TRAINER.preload_size >= config.IL.batch_size
@@ -82,6 +94,63 @@ class TeacherRecollectionDataset(torch.utils.data.IterableDataset):
                     path_step[2],  # oracle_action
                 )
             )
+
+        # self.envs = construct_envs(
+        #     config,
+        #     get_env_class(config.ENV_NAME),
+        #     episodes_allowed=list(self.trajectories.keys()),
+        # )
+        # self.length = sum(self.envs.number_of_episodes)
+        
+        # self.obs_transforms = get_active_obs_transforms(self.config)
+        
+        # obs_space = apply_obs_transforms_obs_space(
+        #     self.envs.observation_spaces[0], self.obs_transforms
+        # )
+
+        # self.env_step = [0 for _ in range(self.envs.num_envs)]
+        # self._env_observations = [[] for _ in range(self.envs.num_envs)]
+
+        # observations = self.envs.reset()
+        # instruction_uuid = self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+        # observations = extract_instruction_tokens(
+        #     observations, instruction_uuid)
+        # batch = batch_obs(observations, device=self.device)
+
+        # obs_space.spaces[instruction_uuid] = spaces.Box(
+        #     low=np.finfo(np.float).min,
+        #     high=np.finfo(np.float).max,
+        #     shape=tuple(batch[instruction_uuid].shape[1:]),
+        #     dtype=np.float,
+        # )
+        # obs_space = spaces.Dict(
+        #     {
+        #         **{
+        #             "rgb_history": obs_space.spaces["rgb"],
+        #             "depth_history": obs_space.spaces["depth"],
+        #         },
+        #         **obs_space.spaces,
+        #     }
+        # )
+        # for k in ["rgb_history", "depth_history"]:
+        #     obs_space.spaces[k] = spaces.Box(
+        #         low=obs_space.spaces[k].low.item(0),
+        #         high=obs_space.spaces[k].high.item(0),
+        #         shape=obs_space.spaces[k].shape[1:],
+        #         dtype=obs_space.spaces[k],
+        #     )
+    
+        # self._observation_space = obs_space
+
+        # for i, ep in enumerate(self.envs.current_episodes()):
+        #     path_step = self.trajectories[ep.episode_id][0]
+        #     self._env_observations[i].append(
+        #         (
+        #             observations[i],
+        #             path_step[0],  # prev_action
+        #             path_step[2],  # oracle_action
+        #         )
+        #     )
 
     @property
     def batch_size(self):
@@ -169,6 +238,7 @@ class TeacherRecollectionDataset(torch.utils.data.IterableDataset):
         Episode length is currently not considered. We were previously batching episodes
         together with similar lengths. Not sure if we need to bring that back.
         """
+        # import pdb; pdb.set_trace()
 
         if len(self._preload):
             return self._preload.popleft()

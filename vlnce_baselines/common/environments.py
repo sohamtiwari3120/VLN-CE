@@ -10,7 +10,7 @@ from habitat_baselines.common.baseline_registry import baseline_registry
 
 from habitat_extensions.discrete_planner import DiscretePathPlanner
 from habitat_extensions.utils import generate_video, navigator_video_frame
-
+from habitat.utils import profiling_wrapper
 
 @baseline_registry.register_env(name="VLNCEDaggerEnv")
 class VLNCEDaggerEnv(habitat.RLEnv):
@@ -31,6 +31,24 @@ class VLNCEDaggerEnv(habitat.RLEnv):
     def get_info(self, observations: Observations) -> Dict[Any, Any]:
         return self.habitat_env.get_metrics()
 
+@baseline_registry.register_env(name="VLNCESelfOrientEnv")
+class VLNCESelfOrientEnv(habitat.RLEnv):
+    def __init__(self, config: Config, dataset: Optional[Dataset] = None):
+        super().__init__(config.TASK_CONFIG, dataset)
+
+    def get_reward_range(self) -> Tuple[float, float]:
+        # We don't use a reward for DAgger, but the baseline_registry requires
+        # we inherit from habitat.RLEnv.
+        return (0.0, 0.0)
+
+    def get_reward(self, observations: Observations) -> float:
+        return 0.0
+
+    def get_done(self, observations: Observations) -> bool:
+        return self._env.episode_over
+
+    def get_info(self, observations: Observations) -> Dict[Any, Any]:
+        return self.habitat_env.get_metrics()
 
 @baseline_registry.register_env(name="VLNCEInferenceEnv")
 class VLNCEInferenceEnv(habitat.RLEnv):

@@ -71,6 +71,7 @@ class DDPPOWaypointTrainer(PPOTrainer):
         super().__init__(config)
 
     def _set_observation_space(self, envs, batch, instruction_uuid):
+
         obs_space = apply_obs_transforms_obs_space(
             envs.observation_spaces[0], self.obs_transforms
         )
@@ -360,11 +361,15 @@ class DDPPOWaypointTrainer(PPOTrainer):
         batch["depth_history"] = batch["depth"][:, 0].detach().clone() * 0.0
         self._set_observation_space(self.envs, batch, instruction_uuid)
 
+        load_from_ckpt = self.RL.POLICY.load_from_ckpt
+        ckpt_to_load = self.RL.POLICY.ckpt_to_load
+
         self._initialize_policy(
             config=self.config,
-            load_from_ckpt=False,
+            load_from_ckpt=load_from_ckpt,
             observation_space=self.obs_space,
             action_space=self.envs.action_spaces[0],
+            ckpt_to_load=ckpt_to_load
         )
 
         self.agent.init_distributed(find_unused_params=True)

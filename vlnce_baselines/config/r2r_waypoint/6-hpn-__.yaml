@@ -10,6 +10,9 @@ EVAL_CKPT_PATH_DIR: data/checkpoints/hpn___
 
 RL:
   POLICY:
+    load_from_ckpt: False                    # LOAD PRETRAINED MODEL
+    ckpt_to_load: data/waypoint_weights/6-HPN-__.pth # REPLACE THIS
+
     OBS_TRANSFORMS:
       ENABLED_TRANSFORMS: [ObsStack]
 

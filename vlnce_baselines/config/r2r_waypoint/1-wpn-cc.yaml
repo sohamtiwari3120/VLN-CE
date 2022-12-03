@@ -10,6 +10,10 @@ EVAL_CKPT_PATH_DIR: data/checkpoints/wpn_cc
 
 RL:
   POLICY:
+    load_from_ckpt: False # LOAD PRETRAINED MODEL
+    ckpt_to_load: data/waypoint_weights/1-WPN-cc.pth 
+    # ckpt_to_load: data/waypoint_weights/1-WPN-cc-discretenav.pth
+
     OBS_TRANSFORMS:
       ENABLED_TRANSFORMS: [ObsStack]
 
