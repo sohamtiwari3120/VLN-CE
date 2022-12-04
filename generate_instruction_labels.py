@@ -33,7 +33,6 @@ def instruction_progess():
 
     val_seen_data = 'data/datasets/RxR_VLNCE_v0/val_seen'
     vs_guide_gt = json.load(open(f'{val_seen_data}/val_seen_guide_gt.json'))
-    print()
     with VLNCEInferenceEnv(config=config) as env:      
         print("Environment creation successful")
         
@@ -72,7 +71,7 @@ def instruction_progess():
             num_locations = len(vs_guide_gt[episode_id]['locations'])
             total_instruction_time = end_time - start_time
 
-            time_for_each_action = total_instruction_time / num_locations
+            time_for_each_action = total_instruction_time / num_actions
             # breakpoint()
             # Move forward, take a left after the sofa! and then stop
             # {Move} {forward,} {take} {a} ... {sofa! and then stop}
@@ -117,8 +116,21 @@ def instruction_progess():
                 print(curr_phrase)
                 match = re.search(r"[.,!?]", curr_phrase)
                 if match:
-                    print("match", match)
-                    breakpoint()
+                    num_words_curr_phrase = len(curr_phrase.split())
+                    num_words_first_subphrase = len(curr_phrase[:match.end()].split())
+                    first_subphrase_end_time = num_words_first_subphrase/num_words_curr_phrase * (et - st)
+                    curr_phrase_end_time = first_subphrase_end_time
+                    all_phrases_with_times.append({
+                        'text': curr_phrase[:match.end()],
+                        'start_time': curr_phrase_start_time,
+                        "end_time": curr_phrase_end_time
+                    })
+                    curr_phrase = curr_phrase[match.end()+1:].strip()
+                    if len(curr_phrase) > 0:
+                        curr_phrase += " "
+                    curr_phrase_start_time = first_subphrase_end_time
+
+            print(all_phrases_with_times)      
 
                 # temp_str += f" {word}"
                 # print(temp_str, phrase)
