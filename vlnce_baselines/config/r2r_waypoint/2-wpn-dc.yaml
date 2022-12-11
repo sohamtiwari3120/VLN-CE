@@ -10,6 +10,8 @@ EVAL_CKPT_PATH_DIR: data/checkpoints/wpn_dc
 
 RL:
   POLICY:
+    load_from_ckpt: True #LOAD PRETRAINED MODEL
+    ckpt_to_load: data/checkpoints/wpn_dc/2-WPN-dc.pth 
     OBS_TRANSFORMS:
       ENABLED_TRANSFORMS: [ObsStack]
 
@@ -34,3 +36,9 @@ MODEL:
 
   STATE_ENCODER:
     hidden_size: 256
+
+EVAL:
+  USE_CKPT_CONFIG: False
+  SPLIT: val_unseen
+  EPISODE_COUNT: -1
+  SAMPLE: False

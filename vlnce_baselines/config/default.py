@@ -129,6 +129,8 @@ _C.RL.CHECKPOINT_INTERVAL = 250
 # POLICY CONFIG
 # ----------------------------------------------------------------------------
 _C.RL.POLICY = CN()
+_C.RL.POLICY.load_from_ckpt = False
+_C.RL.POLICY.ckpt_to_load = "data/checkpoints/wpn_dc/2-WPN-dc.pth"
 _C.RL.POLICY.OBS_TRANSFORMS = CN()
 _C.RL.POLICY.OBS_TRANSFORMS.ENABLED_TRANSFORMS = []
 _C.RL.POLICY.OBS_TRANSFORMS.OBS_STACK = CN()

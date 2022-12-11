@@ -58,7 +58,7 @@ class TruncatedNormal(nn.Module):
         self._smax = smax
         self._unbounded = self._smin == -np.inf and self._smax == np.inf
         self.A = 1 / (self._scale * np.sqrt(2 * np.pi))
-        self.Z = self._normal.cdf(self._smax) - self._normal.cdf(self._smin)
+        self.Z = self._normal.cdf(torch.tensor(self._smax)) - self._normal.cdf(torch.tensor(self._smin))
         self.support = constraints.interval(self._smin, self._smax)
         self._init_mean_variance_entropy()
 

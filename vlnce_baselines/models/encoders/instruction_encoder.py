@@ -78,7 +78,7 @@ class InstructionEncoder(nn.Module):
         lengths = (lengths != 0.0).long().sum(dim=1)
 
         packed_seq = nn.utils.rnn.pack_padded_sequence(
-            instruction, lengths, batch_first=True, enforce_sorted=False
+            instruction, lengths.cpu(), batch_first=True, enforce_sorted=False
         )
 
         output, final_state = self.encoder_rnn(packed_seq)

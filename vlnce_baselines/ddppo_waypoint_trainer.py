@@ -49,6 +49,7 @@ from vlnce_baselines.common.env_utils import (
 from vlnce_baselines.common.rollout_storage import ActionDictRolloutStorage
 from vlnce_baselines.common.utils import extract_instruction_tokens
 from vlnce_baselines.config.default import add_pano_sensors_to_config
+from vlnce_baselines.models.intrinsic_reward import IntrinsicReward
 
 
 @baseline_registry.register_trainer(name="ddppo-waypoint")
@@ -67,6 +68,8 @@ class DDPPOWaypointTrainer(PPOTrainer):
         interrupted_state = load_interrupted_state()
         if interrupted_state is not None:
             config = interrupted_state["config"]
+        
+        self.intrinsic_reward = IntrinsicReward()
 
         super().__init__(config)
 
@@ -139,6 +142,7 @@ class DDPPOWaypointTrainer(PPOTrainer):
         )
 
         if load_from_ckpt:
+            print('----------- Loading Pretrained Model for Training -----------------')
             ckpt_dict = self.load_checkpoint(ckpt_to_load, map_location="cpu")
             self.agent.load_state_dict(ckpt_dict["state_dict"])
         self.policy = policy
@@ -221,6 +225,10 @@ class DDPPOWaypointTrainer(PPOTrainer):
 
         outputs = self.envs.step(actions)
         observations, rewards, dones, infos = [list(x) for x in zip(*outputs)]
+       
+        intrinsic_rewards = self.intrinsic_reward.compute_reward(observations)
+        for i in range(len(rewards)):
+            rewards[i] += intrinsic_rewards[i] 
 
         env_time += time.time() - t_step_env
 
@@ -360,9 +368,14 @@ class DDPPOWaypointTrainer(PPOTrainer):
         batch["depth_history"] = batch["depth"][:, 0].detach().clone() * 0.0
         self._set_observation_space(self.envs, batch, instruction_uuid)
 
+        load_from_ckpt = self.config.RL.POLICY.load_from_ckpt
+        ckpt_to_load = self.config.RL.POLICY.ckpt_to_load
+
+
         self._initialize_policy(
             config=self.config,
-            load_from_ckpt=False,
+            load_from_ckpt=load_from_ckpt,
+            ckpt_to_load=ckpt_to_load,
             observation_space=self.obs_space,
             action_space=self.envs.action_spaces[0],
         )

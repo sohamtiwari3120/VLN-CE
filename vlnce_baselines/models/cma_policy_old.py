@@ -1,4 +1,3 @@
-from cgitb import text
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -49,31 +48,6 @@ class CMAPolicy(ILPolicy):
             model_config=config.MODEL,
         )
 
-class AutoFusion(nn.Module):
-    def __init__(self, input_features,latent_dim):
-        self.input_features = input_features
-        self.latent_dim=latent_dim
-        self.fuse_in = nn.Sequential(
-            nn.Linear(input_features, input_features//2),
-            nn.Tanh(),
-            nn.Linear(input_features//2, latent_dim),
-            nn.ReLU()
-            )
-        self.fuse_out = nn.Sequential(
-            nn.Linear(latent_dim, input_features//2),
-            nn.ReLU(),
-            nn.Linear(input_features//2, input_features)
-            )
-        self.criterion = nn.MSELoss()
-
-    def forward(self, z):
-        compressed_z = self.fuse_in(z)
-        loss = self.criterion(self.fuse_out(compressed_z), z)
-        output = {
-            'z': compressed_z,
-            'loss': loss
-        }
-        return output
 
 class CMANet(Net):
     """An implementation of the cross-modal attention (CMA) network in
@@ -234,12 +208,13 @@ class CMANet(Net):
         self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None
     ) -> Tensor:
         logits = torch.einsum("nc, nci -> ni", q, k)
+
         if mask is not None:
             logits = logits - mask.float() * 1e8
 
         attn = F.softmax(logits * self._scale, dim=1)
 
-        return torch.einsum("ni, nci -> nc", attn, v), attn
+        return torch.einsum("ni, nci -> nc", attn, v)
 
     def forward(
         self,
@@ -248,36 +223,13 @@ class CMANet(Net):
         prev_actions: Tensor,
         masks: Tensor,
     ) -> Tuple[Tensor, Tensor]:
-        
-        # NOTEs:
-        #   b = batch size
-        # 1) State is comprised by 
-        #   instruction   (b, 200)
-        #   depth         (b, 224, 224, 3)
-        #   rgb           (b, 256, 256, 1)
-        #   prev_actions  (b, 1)
-        # 2) State is embedded:
-        #   instruction   (b, 256, 42)
-        #   depth         (b, 192, 16)
-        #   rgb           (b, 2112, 16)
-        #   prev_actions  (b, 32)
-        # 3) Embeddings are projected through a linear layer
-        #   rgb           (b, 256)
-        #   depth         (b, 128)
-        # 4) These embeddings are concatenated with the previous actions 
-        #    and passed through the RNN encoder along with the previous hidden 
-        #    state, generating the new state (b, 512).   
-        # 5) Attention embeddings are computed 
-        #    text         (b, 256)
-        #    rgb          (b, 256)
-        #    depth        (b, 128)
-        instruction_embedding = self.instruction_encoder(observations) #; print(observations)
+        instruction_embedding = self.instruction_encoder(observations)
         depth_embedding = self.depth_encoder(observations)
         depth_embedding = torch.flatten(depth_embedding, 2)
-        
+
         rgb_embedding = self.rgb_encoder(observations)
         rgb_embedding = torch.flatten(rgb_embedding, 2)
-        
+
         prev_actions = self.prev_action_embedding(
             ((prev_actions.float() + 1) * masks).long().view(-1)
         )
@@ -302,14 +254,14 @@ class CMANet(Net):
             rnn_states[:, 0 : self.state_encoder.num_recurrent_layers],
             masks,
         )
-        
+
         text_state_q = self.state_q(state)
         text_state_k = self.text_k(instruction_embedding)
         text_mask = (instruction_embedding == 0.0).all(dim=1)
-        text_embedding, text_attn = self._attn(
+        text_embedding = self._attn(
             text_state_q, text_state_k, instruction_embedding, text_mask
         )
-        
+
         rgb_k, rgb_v = torch.split(
             self.rgb_kv(rgb_embedding), self._hidden_size // 2, dim=1
         )
@@ -318,8 +270,8 @@ class CMANet(Net):
         )
 
         text_q = self.text_q(text_embedding)
-        rgb_embedding, rgb_attn = self._attn(text_q, rgb_k, rgb_v)
-        depth_embedding, depth_attn = self._attn(text_q, depth_k, depth_v)
+        rgb_embedding = self._attn(text_q, rgb_k, rgb_v)
+        depth_embedding = self._attn(text_q, depth_k, depth_v)
 
         x = torch.cat(
             [
@@ -331,26 +283,16 @@ class CMANet(Net):
             ],
             dim=1,
         )
-       
-        #x is concatenated representation of instructions, depth features and rgb features
-        #Pass x to autofusion and get better reconstructed embeddings
-        auto_fusion=AutoFusion(x.shape[0],512)
+        x = self.second_state_compress(x)
+        (
+            x,
+            rnn_states_out[:, self.state_encoder.num_recurrent_layers :],
+        ) = self.second_state_encoder(
+            x,
+            rnn_states[:, self.state_encoder.num_recurrent_layers :],
+            masks,
+        )
 
-        output=auto_fusion(x)
-
-        x_fused=output["z"]
-        autofusion_loss=output["loss"]
-
-        if AuxLosses.is_active():
-            AuxLosses.register_loss(
-                "autofusion_loss",
-                autofusion_loss,
-                self.model_config.PROGRESS_MONITOR.alpha,
-            )
-
-        x = self.second_state_compress(x_fused)
-        (x,rnn_states_out[:, self.state_encoder.num_recurrent_layers :],) = self.second_state_encoder(x,rnn_states[:, self.state_encoder.num_recurrent_layers :],masks,)
-    
         if self.model_config.PROGRESS_MONITOR.use and AuxLosses.is_active():
             progress_hat = torch.tanh(self.progress_monitor(x))
             progress_loss = F.mse_loss(
@@ -363,12 +305,5 @@ class CMANet(Net):
                 progress_loss,
                 self.model_config.PROGRESS_MONITOR.alpha,
             )
-        
-        attention = {
-            "text": text_attn.detach().cpu().numpy(), 
-            "rgb": rgb_attn.detach().cpu().numpy(), 
-            "depth": depth_attn.detach().cpu().numpy()
-        }
-        return x, rnn_states_out, attention
 
-
+        return x, rnn_states_out
