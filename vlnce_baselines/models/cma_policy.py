@@ -51,6 +51,7 @@ class CMAPolicy(ILPolicy):
 
 class AutoFusion(nn.Module):
     def __init__(self, input_features,latent_dim):
+        super().__init__()
         self.input_features = input_features
         self.latent_dim=latent_dim
         self.fuse_in = nn.Sequential(
@@ -175,6 +176,8 @@ class CMANet(Net):
             1,
         )
 
+        
+
         self.state_q = nn.Linear(hidden_size, hidden_size // 2)
         self.text_k = nn.Conv1d(
             self.instruction_encoder.output_size, hidden_size // 2, 1
@@ -194,6 +197,8 @@ class CMANet(Net):
             ),
             nn.ReLU(True),
         )
+
+        self.auto_fusion=AutoFusion(1184,1184)
 
         self.second_state_encoder = build_rnn_state_encoder(
             input_size=self._hidden_size,
@@ -334,9 +339,11 @@ class CMANet(Net):
        
         #x is concatenated representation of instructions, depth features and rgb features
         #Pass x to autofusion and get better reconstructed embeddings
-        auto_fusion=AutoFusion(x.shape[0],512)
 
-        output=auto_fusion(x)
+        #import ipdb
+        #ipdb.set_trace()
+
+        output=self.auto_fusion(x)
 
         x_fused=output["z"]
         autofusion_loss=output["loss"]

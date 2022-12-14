@@ -83,7 +83,7 @@ class RecollectTrainer(BaseVLNCETrainer):
                 collate_fn=collate_fn,
                 pin_memory=False,
                 drop_last=True,
-                num_workers=1,
+                num_workers=0,
             )
         )
 
@@ -128,7 +128,8 @@ class RecollectTrainer(BaseVLNCETrainer):
                 for batch_idx in t:
                     batch_time = time.time()
                     batch_str = f"{batch_idx + 1}/{batches_per_epoch}"
-
+                    #import ipdb
+                    #ipdb.set_trace()
                     (
                         observations_batch,
                         prev_actions_batch,
@@ -212,6 +213,9 @@ class RecollectTrainer(BaseVLNCETrainer):
                     writer.add_scalar("action_loss", action_loss, self.step_id)
                     writer.add_scalar("aux_loss", aux_loss, self.step_id)
                     self.step_id += 1  # noqa: SIM113
+
+                    if (self.step_id + 1)%50:
+                        self.save_checkpoint(epoch, self.step_id)
 
                 self.save_checkpoint(epoch, self.step_id)
 
